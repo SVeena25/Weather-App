@@ -21,6 +21,12 @@ function buildWeatherUrl({ city, lat, lon } = {}) {
     // If template contains {lat}/{lon}, replace them
     if (lat != null) tpl = tpl.replace(/\{lat\}/g, encodeURIComponent(lat));
     if (lon != null) tpl = tpl.replace(/\{lon\}/g, encodeURIComponent(lon));
+      // If template contains {city}, replace it and return (supports public API URL templates)
+      if (tpl.includes('{city}')) {
+        if (!city) throw new Error('City required for this API template');
+        tpl = tpl.replace(/\{city\}/g, encodeURIComponent(city));
+        return tpl + (tpl.includes('?') ? '&' : '?') + 'units=metric';
+      }
     // If template contains {API key} placeholder, we cannot proceed without a real key
     if (/\{\s*API key\s*\}/i.test(tpl) || /\{\s*API_key\s*\}/i.test(tpl)) {
       throw new Error('OpenWeatherMap configuration contains a URL template with a {API key} placeholder — supply a real API key in config.local.js (window.OPENWEATHER_API_KEY = "YOUR_KEY").');
@@ -106,6 +112,57 @@ async function fetchWeatherJson(url) {
   }
   return res.json();
 }
+
+// ----- Public API fallbacks (no API key required) -----
+async function fetchWttrForCity(city) {
+  const url = `https://wttr.in/${encodeURIComponent(city)}?format=j1`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error('Failed to fetch wttr.in data');
+  return res.json();
+}
+
+function normalizeWttrToOpenWeatherShape(w) {
+  // w is the JSON from wttr.in (format=j1)
+  const current = (w.current_condition && w.current_condition[0]) || {};
+  const nearest = (w.nearest_area && w.nearest_area[0]) || {};
+  const name = (nearest.areaName && nearest.areaName[0] && nearest.areaName[0].value) || (w.request && w.request[0] && w.request[0].query) || '';
+  const country = (nearest.country && nearest.country[0] && nearest.country[0].value) || '';
+  const temp = Number(current.temp_C || current.temp_F && (current.temp_F - 32) * 5/9 || NaN);
+  const humidity = Number(current.humidity || NaN);
+  const windKmph = Number(current.windspeedKmph || 0);
+  const windMs = isNaN(windKmph) ? undefined : (windKmph / 3.6);
+  const desc = (current.weatherDesc && current.weatherDesc[0] && current.weatherDesc[0].value) || '';
+
+  return {
+    name: name,
+    sys: { country },
+    weather: [{ description: desc, icon: '' }],
+    main: { temp: isNaN(temp) ? 0 : temp, humidity: isNaN(humidity) ? '' : humidity },
+    wind: { speed: windMs },
+    coord: { lat: undefined, lon: undefined }
+  };
+}
+
+async function fetchOpenMeteoForCoords(lat, lon) {
+  const url = `https://api.open-meteo.com/v1/forecast?latitude=${encodeURIComponent(lat)}&longitude=${encodeURIComponent(lon)}&current_weather=true&temperature_unit=celsius&windspeed_unit=ms`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error('Failed to fetch open-meteo data');
+  return res.json();
+}
+
+function normalizeOpenMeteoToOpenWeatherShape(m, lat, lon) {
+  // m is the open-meteo response with current_weather
+  const cur = m.current_weather || {};
+  return {
+    name: '',
+    sys: { country: '' },
+    weather: [{ description: `Weather code ${cur.weathercode || ''}`, icon: '' }],
+    main: { temp: Number(cur.temperature || 0), humidity: '' },
+    wind: { speed: Number(cur.windspeed || 0) },
+    coord: { lat, lon }
+  };
+}
+
 
 function updateUI(data) {
   const card = document.getElementById('weather-card');
