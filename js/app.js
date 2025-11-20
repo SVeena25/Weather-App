@@ -150,6 +150,69 @@ function normalizeOpenMeteoToOpenWeatherShape(m, lat, lon) {
   };
 }
 
+// Geocode a city name to lat/lon using Nominatim (OpenStreetMap)
+async function geocodeCityNominatim(city) {
+  const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(city)}`;
+  const res = await fetch(url, { headers: { 'Accept-Language': 'en-US' } });
+  if (!res.ok) throw new Error('Failed to geocode city');
+  const arr = await res.json();
+  if (!Array.isArray(arr) || arr.length === 0) throw new Error('Location not found');
+  const first = arr[0];
+  return { lat: Number(first.lat), lon: Number(first.lon), display_name: first.display_name };
+}
+
+// Fetch a 5-day daily forecast from Open-Meteo for given coords
+async function fetchOpenMeteoDailyForecast(lat, lon, days = 5) {
+  // request daily max/min temps and weathercode; timezone=auto to format dates nicely
+  const url = `https://api.open-meteo.com/v1/forecast?latitude=${encodeURIComponent(lat)}&longitude=${encodeURIComponent(lon)}&daily=temperature_2m_max,temperature_2m_min,weathercode&timezone=auto`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error('Failed to fetch open-meteo daily forecast');
+  return res.json();
+}
+
+function mapWeatherCodeToDesc(code) {
+  // Minimal mapping for common codes (not exhaustive)
+  const map = {
+    0: 'Clear sky',
+    1: 'Mainly clear',
+    2: 'Partly cloudy',
+    3: 'Overcast',
+    45: 'Fog',
+    48: 'Depositing rime fog',
+    51: 'Light drizzle',
+    53: 'Moderate drizzle',
+    55: 'Dense drizzle',
+    61: 'Slight rain',
+    63: 'Moderate rain',
+    65: 'Heavy rain',
+    71: 'Slight snow',
+    73: 'Moderate snow',
+    75: 'Heavy snow',
+    95: 'Thunderstorm',
+  };
+  return map[code] || `Weather code ${code}`;
+}
+
+function normalizeOpenMeteoDailyToList(m) {
+  // Converts Open-Meteo daily arrays into a list of items compatible with render5DayForecast
+  if (!m || !m.daily) return [];
+  const dates = m.daily.time || [];
+  const mins = m.daily.temperature_2m_min || [];
+  const maxs = m.daily.temperature_2m_max || [];
+  const codes = m.daily.weathercode || [];
+  const list = [];
+  for (let i = 0; i < dates.length && list.length < 5; i++) {
+    const d = dates[i];
+    const noon = new Date(d + 'T12:00:00');
+    list.push({
+      dt: Math.floor(noon.getTime() / 1000),
+      main: { temp_min: Number(mins[i] ?? 0), temp_max: Number(maxs[i] ?? 0), temp: Math.round(((Number(mins[i] ?? 0) + Number(maxs[i] ?? 0)) / 2)) },
+      weather: [{ description: mapWeatherCodeToDesc(codes[i]), icon: '' }]
+    });
+  }
+  return list;
+}
+
 
 function updateUI(data) {
   const card = document.getElementById('weather-card');
@@ -206,13 +269,23 @@ function buildForecastUrl(city) {
 async function getForecastByCity(city) {
   try {
     if (!hasValidApiKey()) {
-      // Use wttr.in to build a simple 5-day view
+      // Use Nominatim to geocode the city, then Open-Meteo for a daily 5-day forecast
       try {
-        const wt = await fetchWttrForCity(city);
-        render5DayForecastFromWttr(wt);
+        const loc = await geocodeCityNominatim(city);
+        const forecast = await fetchOpenMeteoDailyForecast(loc.lat, loc.lon, 5);
+        const list = normalizeOpenMeteoDailyToList(forecast);
+        render5DayForecast({ list });
         return;
       } catch (e) {
-        console.warn('Failed to fetch wttr forecast', e);
+        console.warn('Failed to fetch Open-Meteo forecast', e);
+        // fallback to wttr if available
+        try {
+          const wt = await fetchWttrForCity(city);
+          render5DayForecastFromWttr(wt);
+          return;
+        } catch (e2) {
+          console.warn('Failed to fetch wttr forecast', e2);
+        }
       }
     }
     const url = buildForecastUrl(city);
