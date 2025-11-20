@@ -1,84 +1,177 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Weather App</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link href="styles.css" rel="stylesheet">
-  </head>
-  <body>
-    <header>
-      <nav class="navbar navbar-expand-lg navbar-dark bg-primary mb-4">
-        <div class="container">
-          <a class="navbar-brand" href="#">Weather App</a>
-          <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navMenu" aria-controls="navMenu" aria-expanded="false" aria-label="Toggle navigation">
-            <span class="navbar-toggler-icon"></span>
-          </button>
-          <div class="collapse navbar-collapse" id="navMenu">
-            <ul class="navbar-nav ms-auto">
-              <li class="nav-item"><a class="nav-link" href="#">Home</a></li>
-              <li class="nav-item"><a class="nav-link" href="#weather-card">Weather</a></li>
-            </ul>
-          </div>
-        </div>
-      </nav>
-    </header>
 
-    <main class="container mb-5">
-      <div class="row mb-3">
-        <div class="col-12 col-md-8">
-          <div class="input-group">
-            <input id="city-input" type="text" class="form-control" placeholder="Enter city (e.g. London)" />
-            <button id="search-btn" class="btn btn-primary">Search</button>
-            <button id="loc-btn" class="btn btn-outline-secondary" title="Use my location">Use my location</button>
-          </div>
-        </div>
-        <div class="col-12 col-md-4 mt-2 mt-md-0 d-flex align-items-center gap-2">
-          <button id="refresh-btn" class="btn btn-success">Update now</button>
-          <div class="form-check form-switch ms-auto">
-            <input class="form-check-input" type="checkbox" id="auto-refresh">
-            <label class="form-check-label" for="auto-refresh">Auto-refresh</label>
-          </div>
-          <select id="refresh-interval" class="form-select w-auto">
-            <option value="1">1m</option>
-            <option value="5" selected>5m</option>
-            <option value="15">15m</option>
-          </select>
-        </div>
-      </div>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Weather App</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    integrity="sha256-sA+e2Yk6t6bKGSW6vGk1kQYkQbQ6v5Q5vYhZ+8JQmPo=" crossorigin="" />
+  <link href="assets/css/styles.css" rel="stylesheet">
+</head>
 
-      <div id="alert-container"></div>
-
-      <div id="weather-card" class="card shadow-sm d-none">
-        <div class="card-body d-flex gap-4 align-items-center">
-          <img id="weather-icon" src="" alt="icon" width="96" height="96">
-          <div>
-            <h3 id="weather-city" class="card-title mb-0"></h3>
-            <div id="weather-desc" class="text-muted"></div>
-            <h1 id="weather-temp" class="display-4 mb-0"></h1>
-            <div class="small text-muted" id="last-updated"></div>
-          </div>
-          <div class="ms-auto text-end">
-            <div>Humidity: <span id="weather-humidity"></span>%</div>
-            <div>Wind: <span id="weather-wind"></span> m/s</div>
-          </div>
+<body class="hero-bg"
+  style="background: linear-gradient(180deg, rgba(7,7,8,0.85) 0%, rgba(255,255,255,0.85) 100%), url('assets/images/hero1.png') center/cover no-repeat fixed;">
+  <header>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary mb-4 sticky-top">
+      <div class="container">
+        <a class="navbar-brand" href="#">
+          <span class="brand-logo" aria-hidden="true">
+            <!-- Simple sun + cloud SVG logo -->
+            <svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Weather logo">
+              <defs>
+                <linearGradient id="g1" x1="0" x2="1">
+                  <stop offset="0" stop-color="#ffd166" />
+                  <stop offset="1" stop-color="#ffaf4d" />
+                </linearGradient>
+              </defs>
+              <g>
+                <circle cx="20" cy="20" r="8" fill="url(#g1)" />
+                <g fill="#ffc857">
+                  <rect x="19" y="6" width="2" height="6" rx="1" transform="rotate(0 20 9)" />
+                  <rect x="19" y="34" width="2" height="6" rx="1" transform="rotate(0 20 37)" />
+                  <rect x="6" y="19" width="6" height="2" rx="1" transform="rotate(0 9 20)" />
+                  <rect x="34" y="19" width="6" height="2" rx="1" transform="rotate(0 37 20)" />
+                </g>
+                <path
+                  d="M46 34a8 8 0 0 0-8-8 9 9 0 0 0-1 .06A10 10 0 0 0 24 20a11 11 0 0 0-1 .06A8 8 0 1 0 26 44h20a6 6 0 0 0 0-12z"
+                  fill="#e6eef8" />
+              </g>
+            </svg>
+          </span>
+          <span class="brand-text">TrueWeather</span>
+        </a>
+        <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navMenu"
+          aria-controls="navMenu" aria-expanded="false" aria-label="Toggle navigation">
+          <span class="navbar-toggler-icon"></span>
+        </button>
+        <div class="collapse navbar-collapse" id="navMenu">
+          <ul class="navbar-nav ms-auto">
+            <li class="nav-item"><a class="nav-link active" aria-current="page" href="index.html">Forecast</a></li>
+            <li class="nav-item"><a class="nav-link" href="weather-card.html">Weather</a></li>
+          </ul>
         </div>
       </div>
-    </main>
+    </nav>
+  </header>
 
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="js/app.js"></script>
-
-    <footer class="bg-light py-3 mt-4">
-      <div class="container d-flex flex-column flex-md-row align-items-center gap-2">
-        <div class="text-muted">&copy; <span id="year"></span> Weather App</div>
-        <div class="ms-md-auto small">
-          <a href="https://openweathermap.org/" target="_blank" rel="noopener">Data: OpenWeatherMap</a>
-        </div>
+  <main class="container mb-5">
+    <!-- Alerts: rendered here by js/app.js -->
+    <div class="row mb-3">
+      <div class="col-12">
+        <div id="alert-container"></div>
       </div>
-    </footer>
+    </div>
+    <div class="row mb-3">
+      <div class="col-12">
+        <div>
+          <div class="input-wrapper">
+            <div class="controls-row">
+              <div class="input-wrapper">
+                <div class="input-group">
+                  <input id="city-input" type="text" class="form-control" placeholder="Enter city (e.g. London)" />
+                  <button id="search-btn" class="btn btn-primary">Search</button>
+                  <button id="loc-btn" class="btn btn-outline-secondary" title="Use my location">Use my
+                    location</button>
+                </div>
+                <div id="search-response" class="mt-2 small text-muted" aria-live="polite"></div>
+              </div>
+            </div>
+            <div class="row mt-2 mb-3">
+              <div class="col-12 d-flex flex-wrap align-items-center gap-2">
+                <button id="refresh-btn" class="btn btn-success">Update now</button>
 
-    <script>document.getElementById('year').textContent = new Date().getFullYear();</script>
-  </body>
+                <div class="form-check form-switch auto-wrap ms-2">
+                  <input class="form-check-input" type="checkbox" id="auto-refresh">
+                  <label class="form-check-label" for="auto-refresh">Auto-refresh</label>
+                </div>
+
+                <select id="refresh-interval" class="form-select w-auto ms-2">
+                  <option value="1">1m</option>
+                  <option value="5" selected>5m</option>
+                  <option value="15">15m</option>
+                </select>
+
+                <div class="form-check form-switch ms-2 heatmap-switch">
+                  <input class="form-check-input" type="checkbox" id="heatmap-toggle">
+                  <label class="form-check-label" for="heatmap-toggle">Heat map</label>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Heatmap container (toggle to show/hide) -->
+          <div class="row mb-3">
+            <div class="col-12">
+              <div id="heatmap-container" class="d-none">
+                <canvas id="heatmap-canvas"></canvas>
+                <div class="heatmap-overlay muted">Demo heat map — toggle off to hide</div>
+              </div>
+            </div>
+          </div>
+
+
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+    integrity="sha256-o9N1j7kP5Qp1t5YkQWfP8i6ix7Y5b7k3k4fFvT0v4r0=" crossorigin=""></script>
+  <script src="config.local.js"></script>
+  <script src="js/app.js"></script>
+
+  <footer class="bg-light py-3 mt-4">
+    <div class="container d-flex flex-column flex-md-row align-items-center gap-2">
+      <div class="text-muted">&copy; <span id="year"></span> TrueWeather. All rights reserved.</div>
+        <div class="ms-md-3 small footer-links">
+        <a href="https://www.metoffice.gov.uk/weather/warnings-and-advice" target="_blank" rel="noopener">
+          <svg class="footer-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M19.35 10.04A7 7 0 0 0 5 10.9 5.5 5.5 0 0 0 7.5 21h12a4.5 4.5 0 0 0 .89-8.96 6.98 6.98 0 0 0-.04-2z"/></svg>
+          <span>Weather warnings</span>
+        </a>
+        <span class="sep">|</span>
+        <a href="https://github.com/lewis1190/weather-app-hackathon-team-3" target="_blank" rel="noopener">
+          <svg class="footer-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.91.58.11.79-.25.79-.56 0-.28-.01-1.02-.02-2-3.2.7-3.88-1.54-3.88-1.54-.53-1.36-1.3-1.72-1.3-1.72-1.06-.72.08-.71.08-.71 1.17.08 1.79 1.2 1.79 1.2 1.04 1.78 2.73 1.27 3.4.97.11-.76.41-1.27.75-1.56-2.55-.29-5.24-1.28-5.24-5.72 0-1.26.45-2.29 1.2-3.1-.12-.29-.52-1.46.11-3.04 0 0 .98-.31 3.2 1.18a11.1 11.1 0 0 1 2.92-.39c.99.01 1.99.13 2.92.39 2.22-1.49 3.2-1.18 3.2-1.18.64 1.58.24 2.75.12 3.04.75.81 1.2 1.84 1.2 3.1 0 4.45-2.7 5.43-5.27 5.71.42.36.79 1.08.79 2.18 0 1.57-.01 2.84-.01 3.23 0 .31.21.68.8.56C20.71 21.39 24 17.08 24 12c0-6.35-5.15-11.5-12-11.5z"/></svg>
+          <span>GitHub</span>
+        </a>
+        <span class="sep">|</span>
+        <a href="https://www.linkedin.com/" target="_blank" rel="noopener">
+          <svg class="footer-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 3a2 2 0 1 1 0 4 2 2 0 0 1 0-4zM2 8h4v12H2zM8 8h3.8v1.7h.1c.5-.9 1.7-1.8 3.5-1.8C19.6 8 22 9.9 22 14.2V20h-4v-5.1c0-1.2-.04-2.7-1.6-2.7-1.6 0-1.9 1.3-1.9 2.6V20H8z"/></svg>
+          <span>LinkedIn</span>
+        </a>
+      </div>
+      <div class="ms-md-auto small">
+        <a href="https://openweathermap.org/" target="_blank" rel="noopener">Data: OpenWeatherMap</a>
+      </div>
+    </div>
+  </footer>
+  <script>document.getElementById('year').textContent = new Date().getFullYear();</script>
+  <script>
+    // If another page placed a pending alert into sessionStorage, show it here.
+    (function () {
+      try {
+        const raw = sessionStorage.getItem('pendingAlert');
+        if (!raw) return;
+        const obj = JSON.parse(raw);
+        // render into the alert container
+        const container = document.getElementById('alert-container');
+        if (container) {
+          container.innerHTML = `
+							<div class="alert alert-${obj.type || 'danger'} alert-dismissible fade show" role="alert">
+								${obj.message}
+								<button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+							</div>`;
+          if (obj.timeout && obj.timeout > 0) {
+            setTimeout(() => { container.innerHTML = ''; }, obj.timeout);
+          }
+        }
+        // clear it so it doesn't reappear
+        sessionStorage.removeItem('pendingAlert');
+      } catch (e) {
+        console.warn('Failed to display pending alert', e);
+      }
+    })();
+  </script>
+  <script>document.getElementById('year').textContent = new Date().getFullYear();</script>
+</body>
+
 </html>
