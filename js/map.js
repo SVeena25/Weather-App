@@ -1,93 +1,75 @@
-import {
-  getWeatherData,
-  getCurrentWeatherData,
-  renderWeatherData,
-} from "./weather-data.js";
+const toggle = document.getElementById("toggle");
+const layerId = "weatherLayer";
+export let currentMarker = null;
 
-// Wait for initial weather data to load
-const initMap = async () => {
-  // Wait a bit for the weather-data module to complete initial fetch
-  await new Promise((resolve) => setTimeout(resolve, 100));
+import { apiKey } from "./script.js";
 
-  let data = getCurrentWeatherData();
+import {clearRain} from "./background.js"
 
-  // If data not yet loaded, fetch it
-  if (!data) {
-    data = await getWeatherData();
+mapboxgl.accessToken =
+	"pk.eyJ1IjoiYWVzb20iLCJhIjoiY21ldTQ5bjdyMDNiODJrc2dtN282OGY5NCJ9.B4AjkkTaJFGAWZp2uFSfig";
+
+export const map = new mapboxgl.Map({
+	container: "map",
+	style: "mapbox://styles/mapbox/standard-satellite",
+	projection: "globe",
+	zoom: 1.2,
+	center: [30, 15],
+	scrollZoom: true,
+	boxZoom: true,
+});
+
+map.addControl(new mapboxgl.NavigationControl());
+
+// clear weather on map
+map.on("style.load", () => {
+	map.setConfigProperty ('basemap', 'lightPreset', 'dawn')
+	clearRain()
+	map.addSource("weatherLayer", {
+		type: "raster",
+		tiles: [
+			`https://tile.openweathermap.org/map/temp_new/{z}/{x}/{y}.png?appid=${apiKey}`,
+		],
+		tileSize: 256,
+		attribution: "Weather © OpenWeather",
+	});
+	map.addLayer({
+  id: 'sky',
+  type: 'sky',
+  paint: {
+    'sky-type': 'atmosphere',
+    'sky-atmosphere-sun': [0.0, 90.0],  // azimuth, altitude
+    'sky-atmosphere-sun-intensity': 20
   }
+});
+map.addSource('mapbox-dem', {
+  type: 'raster-dem',
+  url: 'mapbox://mapbox.mapbox-terrain-dem-v1',
+  tileSize: 512,
+  maxzoom: 14
+});
+map.setTerrain({ source: 'mapbox-dem', exaggeration: 1.5 });
 
-  const lat = data?.geolocation?.lat || 52.536190007425056;
-  const lon = data?.geolocation?.lon || -2.0708189979933964;
+});
 
-  // Create map centered on current location
-  const map = L.map("interactive-map").setView([lat, lon], 10);
+let weatherLayerVisible = false;
 
-  // Add OpenStreetMap tiles
-  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-    maxZoom: 19,
-    attribution:
-      '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-  }).addTo(map);
-
-  // Add initial marker
-  let marker = L.marker([lat, lon]).addTo(map);
-
-  // Create popup content
-  const createPopupContent = (weatherData) => {
-    const temp = weatherData?.current?.temp ?? "N/A";
-    const desc =
-      weatherData?.current?.weather?.[0]?.description ?? "No description";
-    const aqi = weatherData?.airPollution?.[0]?.aqi ?? "N/A";
-
-    return `
-      <div style="color: #000; text-align: left;">
-        <strong>Weather Info</strong><br>
-        <strong>Temp:</strong> ${temp}°C<br>
-        <strong>Conditions:</strong> ${desc}<br>
-        <strong>Air Quality Index:</strong> ${aqi}
-      </div>
-    `;
-  };
-
-  marker.bindPopup(createPopupContent(data)).openPopup();
-
-  // Handle map clicks - fetch weather for clicked location
-  map.on("click", async (e) => {
-    const clickedLat = e.latlng.lat;
-    const clickedLon = e.latlng.lng;
-
-    try {
-      // Fetch weather data for clicked location
-      const newData = await getWeatherData(clickedLat, clickedLon);
-
-      // Update page with new weather data
-      renderWeatherData(newData);
-
-      // Remove old marker and add new one
-      if (marker) {
-        map.removeLayer(marker);
-      }
-
-      marker = L.marker([clickedLat, clickedLon]).addTo(map);
-      marker.bindPopup(createPopupContent(newData)).openPopup();
-
-      // Update URL with new coordinates
-      const url = new URL(window.location);
-      url.searchParams.set("lat", clickedLat);
-      url.searchParams.set("lon", clickedLon);
-      window.history.pushState({}, "", url);
-    } catch (error) {
-      console.error("Error fetching weather for clicked location:", error);
-      alert(
-        "Failed to fetch weather data for this location. Please try again."
-      );
-    }
-  });
-};
-
-// Initialize map when DOM is ready
-if (document.readyState === "loading") {
-  document.addEventListener("DOMContentLoaded", initMap);
-} else {
-  initMap();
-}
+toggle.addEventListener("click", () => {
+	if (!map.getLayer("weatherLayer")) {
+		map.addLayer({
+			id: "weatherLayer",
+			type: "raster",
+			source: "weatherLayer",
+			paint: {
+				"raster-opacity": 0,
+				"raster-opacity-transition": { duration: 500 },
+			},
+		});
+	}
+	weatherLayerVisible = !weatherLayerVisible;
+	map.setPaintProperty(
+		layerId,
+		"raster-opacity",
+		weatherLayerVisible ? 1 : 0
+	);
+});

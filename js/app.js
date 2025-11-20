@@ -1,6 +1,6 @@
 // Weather App JavaScript
 // Default placeholder API key (replace locally).
-let API_KEY = 'YOUR_OPENWEATHERMAP_API_KEY';
+let API_KEY = 'a39a01836baa52d8ccc9a26a6da70afd';
 // Allow override from a local config file (create `config.local.js` that sets `window.OPENWEATHER_API_KEY`)
 if (typeof window !== 'undefined' && window.OPENWEATHER_API_KEY) {
   API_KEY = window.OPENWEATHER_API_KEY;
@@ -21,12 +21,6 @@ function buildWeatherUrl({ city, lat, lon } = {}) {
     // If template contains {lat}/{lon}, replace them
     if (lat != null) tpl = tpl.replace(/\{lat\}/g, encodeURIComponent(lat));
     if (lon != null) tpl = tpl.replace(/\{lon\}/g, encodeURIComponent(lon));
-      // If template contains {city}, replace it and return (supports public API URL templates)
-      if (tpl.includes('{city}')) {
-        if (!city) throw new Error('City required for this API template');
-        tpl = tpl.replace(/\{city\}/g, encodeURIComponent(city));
-        return tpl + (tpl.includes('?') ? '&' : '?') + 'units=metric';
-      }
     // If template contains {API key} placeholder, we cannot proceed without a real key
     if (/\{\s*API key\s*\}/i.test(tpl) || /\{\s*API_key\s*\}/i.test(tpl)) {
       throw new Error('OpenWeatherMap configuration contains a URL template with a {API key} placeholder — supply a real API key in config.local.js (window.OPENWEATHER_API_KEY = "YOUR_KEY").');
@@ -50,7 +44,20 @@ function debugApiKey() {
   try {
     const masked = API_KEY && API_KEY.length > 8 ? `${API_KEY.slice(0,4)}...${API_KEY.slice(-4)}` : (API_KEY || '(none)');
     console.info('OpenWeatherMap API key:', masked);
-    // Intentionally not inserting an in-page UI warning when the API key is missing.
+    if (!hasValidApiKey()) {
+      // Insert a small warning banner at the top of <main> (do not use showAlert to avoid redirect)
+      const main = document.querySelector('main') || document.body;
+      const existing = document.getElementById('api-key-warning');
+      if (!existing) {
+        const warn = document.createElement('div');
+        warn.id = 'api-key-warning';
+        warn.className = 'alert alert-warning';
+        warn.style.margin = '0 0 1rem 0';
+        warn.role = 'alert';
+        warn.innerHTML = `OpenWeatherMap API key not configured. To run the app, create <code>config.local.js</code> in the project root with <code>window.OPENWEATHER_API_KEY = 'YOUR_KEY'</code>. See <code>config.sample.js</code>.`;
+        main.prepend(warn);
+      }
+    }
   } catch (e) {
     console.warn('API key debug failed', e);
   }
@@ -63,6 +70,9 @@ let map = null;
 let mapMarker = null;
 let mapCanvas = null;
 let mapCanvasCtx = null;
+let mapHeatLayer = null;
+let mapOwmTiles = null;
+let lastForecastData = null; // cache the most recent forecast response
 
 function showAlert(message, type = 'danger', timeout = 5000) {
   // If the dedicated alert container exists on this page, render there.
@@ -100,120 +110,6 @@ async function fetchWeatherJson(url) {
   return res.json();
 }
 
-// ----- Public API fallbacks (no API key required) -----
-async function fetchWttrForCity(city) {
-  const url = `https://wttr.in/${encodeURIComponent(city)}?format=j1`;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error('Failed to fetch wttr.in data');
-  return res.json();
-}
-
-function normalizeWttrToOpenWeatherShape(w) {
-  // w is the JSON from wttr.in (format=j1)
-  const current = (w.current_condition && w.current_condition[0]) || {};
-  const nearest = (w.nearest_area && w.nearest_area[0]) || {};
-  const name = (nearest.areaName && nearest.areaName[0] && nearest.areaName[0].value) || (w.request && w.request[0] && w.request[0].query) || '';
-  const country = (nearest.country && nearest.country[0] && nearest.country[0].value) || '';
-  const temp = Number(current.temp_C || current.temp_F && (current.temp_F - 32) * 5/9 || NaN);
-  const humidity = Number(current.humidity || NaN);
-  const windKmph = Number(current.windspeedKmph || 0);
-  const windMs = isNaN(windKmph) ? undefined : (windKmph / 3.6);
-  const desc = (current.weatherDesc && current.weatherDesc[0] && current.weatherDesc[0].value) || '';
-
-  return {
-    name: name,
-    sys: { country },
-    weather: [{ description: desc, icon: '' }],
-    main: { temp: isNaN(temp) ? 0 : temp, humidity: isNaN(humidity) ? '' : humidity },
-    wind: { speed: windMs },
-    coord: { lat: undefined, lon: undefined }
-  };
-}
-
-async function fetchOpenMeteoForCoords(lat, lon) {
-  const url = `https://api.open-meteo.com/v1/forecast?latitude=${encodeURIComponent(lat)}&longitude=${encodeURIComponent(lon)}&current_weather=true&temperature_unit=celsius&windspeed_unit=ms`;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error('Failed to fetch open-meteo data');
-  return res.json();
-}
-
-function normalizeOpenMeteoToOpenWeatherShape(m, lat, lon) {
-  // m is the open-meteo response with current_weather
-  const cur = m.current_weather || {};
-  return {
-    name: '',
-    sys: { country: '' },
-    weather: [{ description: `Weather code ${cur.weathercode || ''}`, icon: '' }],
-    main: { temp: Number(cur.temperature || 0), humidity: '' },
-    wind: { speed: Number(cur.windspeed || 0) },
-    coord: { lat, lon }
-  };
-}
-
-// Geocode a city name to lat/lon using Nominatim (OpenStreetMap)
-async function geocodeCityNominatim(city) {
-  const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(city)}`;
-  const res = await fetch(url, { headers: { 'Accept-Language': 'en-US' } });
-  if (!res.ok) throw new Error('Failed to geocode city');
-  const arr = await res.json();
-  if (!Array.isArray(arr) || arr.length === 0) throw new Error('Location not found');
-  const first = arr[0];
-  return { lat: Number(first.lat), lon: Number(first.lon), display_name: first.display_name };
-}
-
-// Fetch a 5-day daily forecast from Open-Meteo for given coords
-async function fetchOpenMeteoDailyForecast(lat, lon, days = 5) {
-  // request daily max/min temps and weathercode; timezone=auto to format dates nicely
-  const url = `https://api.open-meteo.com/v1/forecast?latitude=${encodeURIComponent(lat)}&longitude=${encodeURIComponent(lon)}&daily=temperature_2m_max,temperature_2m_min,weathercode&timezone=auto`;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error('Failed to fetch open-meteo daily forecast');
-  return res.json();
-}
-
-function mapWeatherCodeToDesc(code) {
-  // Minimal mapping for common codes (not exhaustive)
-  const map = {
-    0: 'Clear sky',
-    1: 'Mainly clear',
-    2: 'Partly cloudy',
-    3: 'Overcast',
-    45: 'Fog',
-    48: 'Depositing rime fog',
-    51: 'Light drizzle',
-    53: 'Moderate drizzle',
-    55: 'Dense drizzle',
-    61: 'Slight rain',
-    63: 'Moderate rain',
-    65: 'Heavy rain',
-    71: 'Slight snow',
-    73: 'Moderate snow',
-    75: 'Heavy snow',
-    95: 'Thunderstorm',
-  };
-  return map[code] || `Weather code ${code}`;
-}
-
-function normalizeOpenMeteoDailyToList(m) {
-  // Converts Open-Meteo daily arrays into a list of items compatible with render5DayForecast
-  if (!m || !m.daily) return [];
-  const dates = m.daily.time || [];
-  const mins = m.daily.temperature_2m_min || [];
-  const maxs = m.daily.temperature_2m_max || [];
-  const codes = m.daily.weathercode || [];
-  const list = [];
-  for (let i = 0; i < dates.length && list.length < 5; i++) {
-    const d = dates[i];
-    const noon = new Date(d + 'T12:00:00');
-    list.push({
-      dt: Math.floor(noon.getTime() / 1000),
-      main: { temp_min: Number(mins[i] ?? 0), temp_max: Number(maxs[i] ?? 0), temp: Math.round(((Number(mins[i] ?? 0) + Number(maxs[i] ?? 0)) / 2)) },
-      weather: [{ description: mapWeatherCodeToDesc(codes[i]), icon: '' }]
-    });
-  }
-  return list;
-}
-
-
 function updateUI(data) {
   const card = document.getElementById('weather-card');
   document.getElementById('weather-city').textContent = `${data.name}, ${data.sys?.country || ''}`;
@@ -242,12 +138,16 @@ function ensureWeatherCardExists() {
   const markup = `\n    <div class="row mb-3">\n      <div class="col-12">\n        <div id="weather-card" class="card shadow-sm">\n          <div class="card-body d-flex gap-4 align-items-center">\n            <img id="weather-icon" src="assets/images/logo1.png" alt="icon" width="96" height="96">\n            <div>\n              <h3 id="weather-city" class="card-title mb-0">City, Country</h3>\n              <div id="weather-desc" class="text-muted">--</div>\n              <h1 id="weather-temp" class="display-4 mb-0">--°C</h1>\n              <div class="small text-muted" id="last-updated">Last updated: --</div>\n            </div>\n            <div class="ms-auto text-end">\n              <div>Humidity: <span id="weather-humidity">--</span>%</div>\n              <div>Wind: <span id="weather-wind">--</span> m/s</div>\n            </div>\n          </div>\n        </div>\n      </div>\n    </div>\n  `;
   // Add a 5-day forecast container right after the weather card
   const forecastWrap = `\n    <div class="row">\n      <div class="col-12">\n        <div id="forecast-5day" class="d-flex flex-wrap gap-3 mt-3"></div>\n      </div>\n    </div>\n  `;
+  // hourly forecast container (hidden by default) — will be toggled by hourly/daily buttons
+  const hourlyWrap = `\n    <div class="row">\n      <div class="col-12">\n        <div id="forecast-hourly" class="d-flex gap-3 mt-3 overflow-auto" style="display:none;"></div>\n      </div>\n    </div>\n  `;
+  // weekly forecast container (hidden by default)
+  const weeklyWrap = `\n    <div class="row">\n      <div class="col-12">\n        <div id="forecast-weekly" class="d-flex flex-wrap gap-3 mt-3" style="display:none;"></div>\n      </div>\n    </div>\n  `;
   if (insertAfter && insertAfter.parentNode) {
-    insertAfter.insertAdjacentHTML('afterend', markup + forecastWrap);
+    insertAfter.insertAdjacentHTML('afterend', markup + forecastWrap + hourlyWrap + weeklyWrap);
   } else {
     // fallback: append to main
     const main = document.querySelector('main') || document.body;
-    main.insertAdjacentHTML('beforeend', markup + forecastWrap);
+    main.insertAdjacentHTML('beforeend', markup + forecastWrap + hourlyWrap + weeklyWrap);
   }
 }
 
@@ -268,57 +168,145 @@ function buildForecastUrl(city) {
 
 async function getForecastByCity(city) {
   try {
-    if (!hasValidApiKey()) {
-      // Use Nominatim to geocode the city, then Open-Meteo for a daily 5-day forecast
-      try {
-        const loc = await geocodeCityNominatim(city);
-        const forecast = await fetchOpenMeteoDailyForecast(loc.lat, loc.lon, 5);
-        const list = normalizeOpenMeteoDailyToList(forecast);
-        render5DayForecast({ list });
-        return;
-      } catch (e) {
-        console.warn('Failed to fetch Open-Meteo forecast', e);
-        // fallback to wttr if available
-        try {
-          const wt = await fetchWttrForCity(city);
-          render5DayForecastFromWttr(wt);
-          return;
-        } catch (e2) {
-          console.warn('Failed to fetch wttr forecast', e2);
-        }
-      }
-    }
     const url = buildForecastUrl(city);
     const data = await fetchWeatherJson(url);
+    // cache and render
+    lastForecastData = data;
     render5DayForecast(data);
+    return data;
   } catch (err) {
     console.warn('Failed to fetch 5-day forecast', err);
   }
 }
 
-function render5DayForecastFromWttr(wttrJson) {
-  if (!wttrJson || !Array.isArray(wttrJson.weather)) return;
-  // Build a fake OpenWeather-like forecast object with a `list` array
-  const list = [];
-  wttrJson.weather.slice(0,5).forEach(day => {
-    const date = day.date; // YYYY-MM-DD
-    const noon = new Date(date + 'T12:00:00');
-    const hourly = Array.isArray(day.hourly) ? day.hourly : [];
-    const rep = hourly[Math.floor(hourly.length/2)] || hourly[0] || {};
-    const tempMin = Number(day.mintempC || rep.tempC || 0);
-    const tempMax = Number(day.maxtempC || rep.tempC || 0);
-    const desc = (rep.weatherDesc && rep.weatherDesc[0] && rep.weatherDesc[0].value) || '';
-    list.push({
-      dt: Math.floor(noon.getTime() / 1000),
-      main: { temp_min: tempMin, temp_max: tempMax, temp: Math.round((tempMin + tempMax)/2) },
-      weather: [{ description: desc, icon: '' }]
-    });
+function renderHourlyForecast(forecastData, hoursWindow = 12) {
+  if (!forecastData || !forecastData.list) return;
+  // Ensure containers exist
+  const container = document.getElementById('forecast-hourly');
+  const container5 = document.getElementById('forecast-5day');
+  if (container5) container5.style.display = 'none';
+  if (!container) return;
+  container.style.display = 'flex';
+  container.innerHTML = '';
+
+  const now = Math.floor(Date.now() / 1000);
+  const end = now + hoursWindow * 3600;
+  let entries = forecastData.list.filter(i => i.dt >= now && i.dt <= end);
+  if (!entries || entries.length === 0) {
+    // fallback: take the next up-to-8 entries from the list
+    entries = forecastData.list.slice(0, 8);
+  }
+
+  entries.forEach(item => {
+    const d = new Date(item.dt * 1000);
+    const timeLabel = d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+    const icon = item.weather && item.weather[0] && item.weather[0].icon ? item.weather[0].icon : '';
+    const desc = item.weather && item.weather[0] && item.weather[0].description ? item.weather[0].description : '';
+    const temp = Math.round(item.main.temp);
+
+    const el = document.createElement('div');
+    el.className = 'forecast-card p-2 text-center';
+    el.style.minWidth = '110px';
+    el.style.flex = '0 0 auto';
+    el.innerHTML = `
+      <div class="fw-bold mb-1">${timeLabel}</div>
+      <div class="mb-1">${ icon ? `<img src=\"https://openweathermap.org/img/wn/${icon}@2x.png\" width=56 height=56 alt=\"${desc}\">` : '' }</div>
+      <div class="small text-muted mb-1">${desc}</div>
+      <div class="h5 mb-0">${temp}°</div>
+    `;
+    container.appendChild(el);
   });
-  render5DayForecast({ list });
+  // update button active state
+  try {
+    const hourlyBtnEl = document.getElementById('hourlyButton');
+    const dailyBtnEl = document.getElementById('dailyButton');
+    if (hourlyBtnEl) { hourlyBtnEl.classList.add('active'); hourlyBtnEl.setAttribute('aria-pressed', 'true'); }
+    if (dailyBtnEl) { dailyBtnEl.classList.remove('active'); dailyBtnEl.setAttribute('aria-pressed', 'false'); }
+  } catch (e) { /* ignore */ }
+}
+
+// Build One Call (daily) URL for weekly forecast by coordinates
+function buildOneCallUrl(lat, lon) {
+  if (lat == null || lon == null) throw new Error('lat/lon required for onecall');
+  if (!hasValidApiKey()) throw new Error('API key required for One Call API');
+  return `https://api.openweathermap.org/data/2.5/onecall?lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lon)}&exclude=minutely,hourly,alerts&units=metric&appid=${encodeURIComponent(API_KEY)}`;
+}
+
+async function getWeeklyByCoords(lat, lon) {
+  try {
+    const url = buildOneCallUrl(lat, lon);
+    const data = await fetchWeatherJson(url);
+    // note: One Call response shape differs from forecast — store under lastForecastData.weekly for caching
+    lastForecastData = lastForecastData || {};
+    lastForecastData.weekly = data;
+    renderWeeklyForecast(data);
+    return data;
+  } catch (err) {
+    console.warn('Failed to fetch weekly forecast', err);
+    throw err;
+  }
+}
+
+function renderWeeklyForecast(oneCallData) {
+  if (!oneCallData || !oneCallData.daily) return;
+  const container = document.getElementById('forecast-weekly');
+  const dailyContainer = document.getElementById('forecast-5day');
+  const hourlyContainer = document.getElementById('forecast-hourly');
+  if (dailyContainer) dailyContainer.style.display = 'none';
+  if (hourlyContainer) hourlyContainer.style.display = 'none';
+  if (!container) return;
+  container.style.display = 'flex';
+  container.innerHTML = '';
+
+  const days = oneCallData.daily.slice(0, 7);
+  days.forEach(day => {
+    const d = new Date(day.dt * 1000);
+    const dayName = d.toLocaleDateString(undefined, { weekday: 'short' });
+    const icon = day.weather && day.weather[0] && day.weather[0].icon ? day.weather[0].icon : '';
+    const desc = day.weather && day.weather[0] && day.weather[0].description ? day.weather[0].description : '';
+    const min = Math.round(day.temp.min);
+    const max = Math.round(day.temp.max);
+    const pop = typeof day.pop === 'number' ? Math.round(day.pop * 100) : null;
+
+    const el = document.createElement('div');
+    el.className = 'forecast-card p-3 text-center';
+    el.style.minWidth = '120px';
+    el.style.flex = '1 0 140px';
+    el.innerHTML = `
+      <div class="fw-bold mb-2">${dayName}</div>
+      <div class="mb-2">${ icon ? `<img src="https://openweathermap.org/img/wn/${icon}@2x.png" width="56" height="56" alt="${desc}">` : '' }</div>
+      <div class="small text-muted mb-2">${desc}</div>
+      <div class="h5 mb-0">${max}°</div>
+      <div class="text-muted">${min}° ${pop!=null?('| ' + pop + '%') : ''}</div>
+    `;
+    container.appendChild(el);
+  });
+
+  // update button active state
+  try {
+    const hourlyBtnEl = document.getElementById('hourlyButton');
+    const dailyBtnEl = document.getElementById('dailyButton');
+    const weeklyBtnEl = document.getElementById('weeklyButton');
+    if (weeklyBtnEl) { weeklyBtnEl.classList.add('active'); weeklyBtnEl.setAttribute('aria-pressed', 'true'); }
+    if (hourlyBtnEl) { hourlyBtnEl.classList.remove('active'); hourlyBtnEl.setAttribute('aria-pressed', 'false'); }
+    if (dailyBtnEl) { dailyBtnEl.classList.remove('active'); dailyBtnEl.setAttribute('aria-pressed', 'false'); }
+  } catch (e) { /* ignore */ }
 }
 
 function render5DayForecast(forecastData) {
   if (!forecastData || !forecastData.list) return;
+  // show 5-day container and hide hourly when rendering daily view
+  const hourlyContainer = document.getElementById('forecast-hourly');
+  const dailyContainer = document.getElementById('forecast-5day');
+  if (hourlyContainer) hourlyContainer.style.display = 'none';
+  if (dailyContainer) dailyContainer.style.display = 'flex';
+  // update button active state
+  try {
+    const hourlyBtnEl = document.getElementById('hourlyButton');
+    const dailyBtnEl = document.getElementById('dailyButton');
+    if (dailyBtnEl) { dailyBtnEl.classList.add('active'); dailyBtnEl.setAttribute('aria-pressed', 'true'); }
+    if (hourlyBtnEl) { hourlyBtnEl.classList.remove('active'); hourlyBtnEl.setAttribute('aria-pressed', 'false'); }
+  } catch (e) { /* ignore */ }
   // Group forecast entries by date string YYYY-MM-DD
   const groups = {};
   forecastData.list.forEach(item => {
@@ -366,6 +354,35 @@ function initMap() {
       maxZoom: 19,
       attribution: '&copy; <a href="https://openstreetmap.org">OpenStreetMap</a> contributors'
     }).addTo(map);
+
+    // Create a demo Leaflet heat layer if the plugin is present (do NOT add by default)
+    try {
+      if (typeof L !== 'undefined' && typeof L.heatLayer === 'function') {
+        const heatData = [
+          [37.782, -122.447, 0.8],
+          [37.782, -122.445, 0.7],
+          [37.782, -122.443, 0.9]
+        ];
+        // create the layer but do not add it immediately — toggle will control visibility
+        mapHeatLayer = L.heatLayer(heatData, { radius: 25, blur: 15, maxZoom: 17 });
+      }
+    } catch (e) {
+      console.warn('Leaflet heat layer not available', e);
+    }
+
+    // Add OpenWeatherMap tiles overlay (requires a valid OpenWeatherMap API key).
+    // Template: http://maps.openweathermap.org/maps/2.0/weather/{op}/{z}/{x}/{y}?appid={API key}
+    try {
+      if (hasValidApiKey()) {
+        // Use the requested OpenWeatherMap tiles template (TA2) with fixed params
+        const owmTpl = `http://maps.openweathermap.org/maps/2.0/weather/TA2/{z}/{x}/{y}?date=1552861800&opacity=0.9&fill_bound=true&appid=${encodeURIComponent(API_KEY)}`;
+        mapOwmTiles = L.tileLayer(owmTpl, { opacity: 0.9, attribution: '&copy; OpenWeatherMap' }).addTo(map);
+      } else {
+        console.warn('Skipping OpenWeatherMap tiles — API key missing or appears to be a placeholder.');
+      }
+    } catch (e) {
+      console.warn('Could not add OpenWeatherMap tile layer', e);
+    }
 
     // create a canvas overlay in the overlayPane
     try {
@@ -464,24 +481,11 @@ function setMapView(lat, lon, label) {
 }
 
 async function getWeatherByCity(city) {
+  if (!hasValidApiKey()) {
+    showAlert('Please set your OpenWeatherMap API key in js/app.js', 'warning', 8000);
+    return;
+  }
   try {
-    if (!hasValidApiKey()) {
-      // Use wttr.in (no key required)
-      try {
-        const wt = await fetchWttrForCity(city);
-        const data = normalizeWttrToOpenWeatherShape(wt);
-        currentCity = data.name || city;
-        currentCoords = { lat: undefined, lon: undefined };
-        ensureWeatherCardExists();
-        updateUI(data);
-        try { await getForecastByCity(data.name || city); } catch (e) { /* non-fatal */ }
-        return;
-      } catch (e) {
-        console.warn('wttr.in fetch failed', e);
-        showAlert('Unable to fetch weather from public API', 'danger');
-        return;
-      }
-    }
     const url = buildWeatherUrl({ city });
     const data = await fetchWeatherJson(url);
     currentCity = data.name;
@@ -495,21 +499,11 @@ async function getWeatherByCity(city) {
 }
 
 async function getWeatherByCoords(lat, lon) {
+  if (!hasValidApiKey()) {
+    showAlert('Please set your OpenWeatherMap API key in js/app.js', 'warning', 8000);
+    return;
+  }
   try {
-    if (!hasValidApiKey()) {
-      try {
-        const m = await fetchOpenMeteoForCoords(lat, lon);
-        const data = normalizeOpenMeteoToOpenWeatherShape(m, lat, lon);
-        currentCoords = { lat, lon };
-        ensureWeatherCardExists();
-        updateUI(data);
-        return;
-      } catch (e) {
-        console.warn('open-meteo fetch failed', e);
-        showAlert('Unable to fetch weather from public API', 'danger');
-        return;
-      }
-    }
     const url = buildWeatherUrl({ lat, lon });
     const data = await fetchWeatherJson(url);
     currentCity = data.name;
@@ -603,6 +597,75 @@ document.addEventListener('DOMContentLoaded', () => {
   if (autoCheckbox) {
     autoCheckbox.addEventListener('change', (e) => startAutoRefresh(e.target.checked));
   }
+  // Hourly / Daily view buttons
+  const hourlyBtn = document.getElementById('hourlyButton');
+  const dailyBtn = document.getElementById('dailyButton');
+  if (hourlyBtn) {
+    hourlyBtn.addEventListener('click', async () => {
+      if (!currentCity) { showAlert('Please search for a city first', 'warning'); return; }
+      try {
+        // Use cached forecast if it matches currentCity, otherwise fetch
+        let data = null;
+        if (lastForecastData && lastForecastData.city && lastForecastData.city.name && lastForecastData.city.name.toLowerCase() === String(currentCity).toLowerCase()) {
+          data = lastForecastData;
+        } else {
+          data = await getForecastByCity(currentCity);
+        }
+        if (data) renderHourlyForecast(data);
+      } catch (e) {
+        console.warn('Hourly view failed', e);
+        showAlert('Failed to load hourly forecast', 'danger');
+      }
+    });
+  }
+  // Weekly button handler
+  const weeklyBtn = document.getElementById('weeklyButton');
+  if (weeklyBtn) {
+    weeklyBtn.addEventListener('click', async () => {
+      try {
+        // prefer coordinates if available
+        let lat = null, lon = null;
+        if (currentCoords && currentCoords.lat != null && currentCoords.lon != null) {
+          lat = currentCoords.lat; lon = currentCoords.lon;
+        } else if (lastForecastData && lastForecastData.city && lastForecastData.city.coord) {
+          lat = lastForecastData.city.coord.lat; lon = lastForecastData.city.coord.lon;
+        }
+        if (lat == null || lon == null) {
+          if (currentCity) {
+            // try to fetch current weather to populate coords
+            await getWeatherByCity(currentCity);
+            if (currentCoords && currentCoords.lat != null) { lat = currentCoords.lat; lon = currentCoords.lon; }
+          }
+        }
+        if (lat == null || lon == null) {
+          showAlert('Please search for a city or use your location first', 'warning');
+          return;
+        }
+        const data = await getWeeklyByCoords(lat, lon);
+        if (data) renderWeeklyForecast(data);
+      } catch (e) {
+        console.warn('Weekly view failed', e);
+        showAlert('Failed to load weekly forecast', 'danger');
+      }
+    });
+  }
+  if (dailyBtn) {
+    dailyBtn.addEventListener('click', async () => {
+      if (!currentCity) { showAlert('Please search for a city first', 'warning'); return; }
+      try {
+        let data = null;
+        if (lastForecastData && lastForecastData.city && lastForecastData.city.name && lastForecastData.city.name.toLowerCase() === String(currentCity).toLowerCase()) {
+          data = lastForecastData;
+        } else {
+          data = await getForecastByCity(currentCity);
+        }
+        if (data) render5DayForecast(data);
+      } catch (e) {
+        console.warn('Daily view failed', e);
+        showAlert('Failed to load daily forecast', 'danger');
+      }
+    });
+  }
   // Map image toggle removed — no-op
   // Heatmap toggle handling
   const heatToggle = document.getElementById('heatmap-toggle');
@@ -653,14 +716,37 @@ document.addEventListener('DOMContentLoaded', () => {
       heatContainer.classList.remove('d-none');
       resizeCanvas();
       drawHeatmapDemo();
+      // also enable the Leaflet heat layer if present
+      try {
+        if (map && mapHeatLayer && !map.hasLayer(mapHeatLayer)) map.addLayer(mapHeatLayer);
+      } catch (e) { console.warn('Could not add Leaflet heat layer', e); }
+      try { localStorage.setItem('heatmapEnabled', '1'); } catch (e) { /* ignore */ }
     } else {
       heatContainer.classList.add('d-none');
+      try {
+        if (map && mapHeatLayer && map.hasLayer(mapHeatLayer)) map.removeLayer(mapHeatLayer);
+      } catch (e) { console.warn('Could not remove Leaflet heat layer', e); }
+      try { localStorage.setItem('heatmapEnabled', '0'); } catch (e) { /* ignore */ }
     }
   }
 
   if (heatToggle) {
     heatToggle.addEventListener('change', (e) => showHeatmap(e.target.checked));
-    window.addEventListener('resize', () => { if (!heatContainer.classList.contains('d-none')) { resizeCanvas(); drawHeatmapDemo(); } });
+    // restore previous state from localStorage
+    try {
+      const saved = localStorage.getItem('heatmapEnabled');
+      if (saved === '1') {
+        heatToggle.checked = true;
+        showHeatmap(true);
+      }
+    } catch (e) { /* ignore */ }
+
+    window.addEventListener('resize', () => {
+      try {
+        if (!heatContainer.classList.contains('d-none')) { resizeCanvas(); drawHeatmapDemo(); }
+        if (map && mapHeatLayer && map.hasLayer(mapHeatLayer) && typeof map.invalidateSize === 'function') map.invalidateSize();
+      } catch (e) { /* ignore */ }
+    });
   }
 
   // If this page is the alerts page or the standalone weather card page, handle any pending city search or pending alert
