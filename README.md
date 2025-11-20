@@ -64,6 +64,23 @@ To achieve this we included the following features:
 -   Cards displaying weather information
 -   Dynamic background
 
+## Local configuration (API key)
+
+This project supports using an OpenWeatherMap API key or falling back to public APIs (Open-Meteo / wttr.in).
+
+To generate `config.local.js` from an environment variable on your machine, set `OPENWEATHER_API_KEY` in your shell and run the included generator script.
+
+PowerShell example (temporary environment variable):
+
+```powershell
+$env:OPENWEATHER_API_KEY = 'your_openweather_key_here';
+node scripts/generate-config.js
+```
+
+If you prefer to keep a file with the value, copy `.env.example` to `.env` and set the key, then run the generator (you might use a small helper like `dotenv-cli` to load `.env` into the environment before running the node script).
+
+If you leave the key blank, the app will use public fallbacks for most features.
+
 
 
 
