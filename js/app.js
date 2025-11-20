@@ -469,8 +469,8 @@ function setMapView(lat, lon, label) {
 
 async function getWeatherByCity(city) {
   if (!hasValidApiKey()) {
-    showAlert('Please set your OpenWeatherMap API key in js/app.js', 'warning', 8000);
-    return;
+    // No OpenWeather key configured — use public fallback where available.
+    console.info('No OpenWeatherMap API key configured; using public fallback APIs.');
   }
   try {
     const url = buildWeatherUrl({ city });
@@ -487,8 +487,8 @@ async function getWeatherByCity(city) {
 
 async function getWeatherByCoords(lat, lon) {
   if (!hasValidApiKey()) {
-    showAlert('Please set your OpenWeatherMap API key in js/app.js', 'warning', 8000);
-    return;
+    // No OpenWeather key configured — use public fallback where available.
+    console.info('No OpenWeatherMap API key configured; using public fallback APIs.');
   }
   try {
     const url = buildWeatherUrl({ lat, lon });
