@@ -21,3 +21,15 @@ export function updateWeatherIcon(data) {
     iconElement.innerHTML = weatherIcon;
   }
 }
+
+// Make these utilities available on `window` for non-module scripts
+try {
+  if (typeof window !== 'undefined') {
+    window.updateAirQualityName = updateAirQualityName;
+    window.updateUvIndex = updateUvIndex;
+    window.updateRainCoverage = updateRainCoverage;
+    window.updateWeatherIcon = updateWeatherIcon;
+  }
+} catch (e) {
+  // ignore in non-browser contexts
+}
