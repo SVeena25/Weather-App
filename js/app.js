@@ -1,6 +1,6 @@
 // Weather App JavaScript
 // Default placeholder API key (replace locally).
-let API_KEY = 'a39a01836baa52d8ccc9a26a6da70afd';
+let API_KEY = '';
 // Allow override from a local config file (create `config.local.js` that sets `window.OPENWEATHER_API_KEY`)
 if (typeof window !== 'undefined' && window.OPENWEATHER_API_KEY) {
   API_KEY = window.OPENWEATHER_API_KEY;
