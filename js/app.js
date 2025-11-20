@@ -44,20 +44,7 @@ function debugApiKey() {
   try {
     const masked = API_KEY && API_KEY.length > 8 ? `${API_KEY.slice(0,4)}...${API_KEY.slice(-4)}` : (API_KEY || '(none)');
     console.info('OpenWeatherMap API key:', masked);
-    if (!hasValidApiKey()) {
-      // Insert a small warning banner at the top of <main> (do not use showAlert to avoid redirect)
-      const main = document.querySelector('main') || document.body;
-      const existing = document.getElementById('api-key-warning');
-      if (!existing) {
-        const warn = document.createElement('div');
-        warn.id = 'api-key-warning';
-        warn.className = 'alert alert-warning';
-        warn.style.margin = '0 0 1rem 0';
-        warn.role = 'alert';
-        warn.innerHTML = `OpenWeatherMap API key not configured. To run the app, create <code>config.local.js</code> in the project root with <code>window.OPENWEATHER_API_KEY = 'YOUR_KEY'</code>. See <code>config.sample.js</code>.`;
-        main.prepend(warn);
-      }
-    }
+    // Intentionally not inserting an in-page UI warning when the API key is missing.
   } catch (e) {
     console.warn('API key debug failed', e);
   }
