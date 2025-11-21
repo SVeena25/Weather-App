@@ -1,12 +1,22 @@
 // Weather App JavaScript
 // Default placeholder API key (replace locally).
 
-// Placeholder API key (do not use in production). Use your own key in config.local.js
+// Default: no API key. Prefer a key injected via `config.local.js` (window.OPENWEATHER_API_KEY)
+// or via a meta tag `<meta name="openweather-api-key" content="...">` or
+// a global `window.__OPENWEATHER_API_KEY__` for CI/deployment injection.
 let API_KEY = '';
 // Allow override from a local config file (create `config.local.js` that sets `window.OPENWEATHER_API_KEY`)
 if (typeof window !== 'undefined' && window.OPENWEATHER_API_KEY) {
   API_KEY = window.OPENWEATHER_API_KEY;
 }
+// Additional fallbacks: meta tag or explicit global
+try {
+  if (typeof window !== 'undefined' && !API_KEY) {
+    const meta = document.querySelector('meta[name="openweather-api-key"]');
+    if (meta && meta.content) API_KEY = meta.content;
+    else if (window.__OPENWEATHER_API_KEY__) API_KEY = window.__OPENWEATHER_API_KEY__;
+  }
+} catch (e) { /* ignore when DOM not available */ }
 
 function hasValidApiKey() {
   if (!API_KEY) return false;
@@ -45,7 +55,7 @@ function buildWeatherUrl({ city, lat, lon } = {}) {
 function debugApiKey() {
   try {
     const masked = API_KEY && API_KEY.length > 8 ? `${API_KEY.slice(0,4)}...${API_KEY.slice(-4)}` : (API_KEY || '(none)');
-    console.info('OpenWeatherMap API key: a39a01836baa52d8ccc9a26a6da70afd', masked);
+    console.info('OpenWeatherMap API key:', masked);
     if (!hasValidApiKey()) {
         // Do not insert a visible DOM warning here to avoid cluttering pages.
         // Log a clear developer message to the console with steps to generate the frontend config.
