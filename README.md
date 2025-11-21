@@ -18,6 +18,10 @@
 -   [Lighthouse](#lighthouse)
 -   [Credits](#credits)
 
+# live-site
+
+https://sveena25.github.io/Weather-App/
+
 # Introduction
 
 Weather App (Hackathon Team 3) is a small responsive web app that shows current weather and a 5-day forecast, displays alerts, and includes an interactive map. Users can search for a city or use geolocation to get weather details (temperature in °C, humidity, wind, and description). The app integrates OpenWeatherMap for weather data and links to Met Office weather warnings for additional advisories.
@@ -56,7 +60,7 @@ The structure of the site is simple as it is a one-page website with two navigat
 
 Balsamiq Wireframes were used to plan the layout of the site.
 
-![Wireframes](/assets/images-readme/WeatherAppWireframe.png)
+![Wireframes](assets/images-readme/WeatherAppWireframe.png)
 
 As can be observed above, we had a framework for how we wanted to present the site & its key features.
 
@@ -80,7 +84,7 @@ within the project scope phase, we deceided to include to means of aqcuiring the
 
 Namely, via a search text field & a geo-location button:
 
-![Geo-location](/assets/images-readme/Geo-search.png)
+![Geo-location](assets/images-readme/Geo-search.png)
 
 Upon clicking this button, the user is prompted by their respective search engine whether to enable current location.
 
@@ -107,13 +111,13 @@ There are 2 buttons displayed: "Hourly" and "Daily", which allow the user to tog
 
 The forecast section displays the weather forecast depending on which button the user clicks (hourly or daily). For hourly, the weather shows every 3 hours starting from the next slot after the current time.
 
-![Forecast Weather Section - hourly](documentation/forecast-hourly-2-cards.png)
+<!-- ![Forecast Weather Section - hourly](documentation/forecast-hourly-2-cards.png)
 
 ![Forecast Weather Section - hourly (all)](documentation/forcast-cards-all-hours.png)
 
 For daily, the weather shows the next 5 days including today.
 
-![Forecast Weather Section - daily](documentation/forecast-daily.png)
+![Forecast Weather Section - daily](documentation/forecast-daily.png) -->
 ### Scroll to Top Button
 
 Dynamic scroll to top button using JavaScript lets users jump back to the top of the page instantly, making browsing smooth and frustration free.
