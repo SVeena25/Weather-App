@@ -43,8 +43,12 @@ function buildWeatherUrl({ city, lat, lon } = {}) {
 function debugApiKey() {
   try {
     const masked = API_KEY && API_KEY.length > 8 ? `${API_KEY.slice(0,4)}...${API_KEY.slice(-4)}` : (API_KEY || '(none)');
-    console.info('OpenWeatherMap API key:', masked);
-    // Intentionally not inserting an in-page UI warning when the API key is missing.
+    console.info('OpenWeatherMap API key: a39a01836baa52d8ccc9a26a6da70afd', masked);
+    if (!hasValidApiKey()) {
+        // Do not insert a visible DOM warning here to avoid cluttering pages.
+        // Log a clear developer message to the console with steps to generate the frontend config.
+        console.warn('OpenWeatherMap API key not configured. Set the env var OPENWEATHER_API_KEY or add it to a local .env file, then run scripts/generate-config.js (or scripts\\generate-config.ps1 on Windows) to create config.local.js and reload the page. See README for details.');
+    }
   } catch (e) {
     console.warn('API key debug failed', e);
   }
@@ -469,8 +473,8 @@ function setMapView(lat, lon, label) {
 
 async function getWeatherByCity(city) {
   if (!hasValidApiKey()) {
-    // No OpenWeather key configured — use public fallback where available.
-    console.info('No OpenWeatherMap API key configured; using public fallback APIs.');
+    showAlert('OpenWeatherMap API key not configured. Set the env var OPENWEATHER_API_KEY (or add it to .env) and run scripts/generate-config.js (or scripts\\generate-config.ps1 on Windows) to create config.local.js, then reload.', 'warning', 10000);
+    return;
   }
   try {
     const url = buildWeatherUrl({ city });
@@ -487,8 +491,8 @@ async function getWeatherByCity(city) {
 
 async function getWeatherByCoords(lat, lon) {
   if (!hasValidApiKey()) {
-    // No OpenWeather key configured — use public fallback where available.
-    console.info('No OpenWeatherMap API key configured; using public fallback APIs.');
+    showAlert('OpenWeatherMap API key not configured. Set the env var OPENWEATHER_API_KEY (or add it to .env) and run scripts/generate-config.js (or scripts\\generate-config.ps1 on Windows) to create config.local.js, then reload.', 'warning', 10000);
+    return;
   }
   try {
     const url = buildWeatherUrl({ lat, lon });
@@ -520,8 +524,55 @@ function startAutoRefresh(enabled) {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-  // initialize the map early so updateUI can call setMapView
-  try { initMap(); } catch (e) { /* initMap handles its own errors */ }
+  // Ensure Leaflet is loaded before attempting to initialize the map.
+  // This avoids a ReferenceError when `L` is not present on the page.
+  function ensureLeafletLoaded() {
+    if (typeof L !== 'undefined') return Promise.resolve();
+    return new Promise((resolve, reject) => {
+      // inject leaflet CSS if missing
+      try {
+        if (!document.querySelector('link[data-leaflet]')) {
+          const link = document.createElement('link');
+          link.rel = 'stylesheet';
+          link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+          link.setAttribute('data-leaflet', '1');
+          document.head.appendChild(link);
+        }
+      } catch (e) { /* non-fatal */ }
+
+      const loadScript = (src) => new Promise((res, rej) => {
+        if (document.querySelector('script[src="' + src + '"]')) return res();
+        const s = document.createElement('script');
+        s.src = src;
+        s.async = true;
+        s.onload = () => res();
+        s.onerror = () => rej(new Error('Failed to load ' + src));
+        document.body.appendChild(s);
+      });
+
+      const leafletUrl = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+      const heatUrl = 'https://unpkg.com/leaflet.heat/dist/leaflet-heat.js';
+
+      loadScript(leafletUrl).then(() => {
+        // small delay to allow Leaflet to initialize its global
+        setTimeout(() => {
+          if (typeof L !== 'undefined') {
+            // load heat plugin optionally; resolve even if plugin fails
+            loadScript(heatUrl).then(() => resolve()).catch(() => resolve());
+          } else {
+            reject(new Error('Leaflet loaded but global `L` is not available'));
+          }
+        }, 80);
+      }).catch(reject);
+    });
+  }
+
+  ensureLeafletLoaded().then(() => {
+    try { initMap(); } catch (e) { console.warn('Leaflet map could not be initialized', e); }
+  }).catch((err) => {
+    // Leaflet not available — continue without map, but log for debugging
+    console.warn('Leaflet not available; map initialization skipped', err);
+  });
   // Run API key debug helper (non-intrusive)
   try { debugApiKey(); } catch (e) { /* ignore */ }
   const searchBtn = document.getElementById('search-btn');
@@ -638,13 +689,25 @@ document.addEventListener('DOMContentLoaded', () => {
   }
   if (dailyBtn) {
     dailyBtn.addEventListener('click', async () => {
-      if (!currentCity) { showAlert('Please search for a city first', 'warning'); return; }
       try {
+        // Prefer cached forecast data when available
         let data = null;
-        if (lastForecastData && lastForecastData.city && lastForecastData.city.name && lastForecastData.city.name.toLowerCase() === String(currentCity).toLowerCase()) {
+        if (lastForecastData && lastForecastData.list) {
           data = lastForecastData;
         } else {
-          data = await getForecastByCity(currentCity);
+          // Try to determine a city to fetch forecast for: currentCity first, then the displayed city text
+          let city = currentCity;
+          if (!city) {
+            const cityEl = document.getElementById('weather-city');
+            if (cityEl && cityEl.textContent) {
+              city = cityEl.textContent.split(',')[0].trim();
+            }
+          }
+          if (!city) {
+            showAlert('Please search for a city first', 'warning');
+            return;
+          }
+          data = await getForecastByCity(city);
         }
         if (data) render5DayForecast(data);
       } catch (e) {
